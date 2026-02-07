@@ -374,4 +374,4 @@ graph LR
 | `time` | `UTCTime` for build timestamps |
 | `clock` | `TimeSpec` for monotonic timing |
 
-Test dependencies: `hspec`, `QuickCheck`.
+Test dependencies: `tasty`, `tasty-hedgehog`, `hedgehog`.
