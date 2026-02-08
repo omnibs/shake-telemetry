@@ -28,7 +28,7 @@ library
     , containers
     , hashable
     , shake
-    , stm
+    , strict-stm
     , text
     , time
     , unordered-containers

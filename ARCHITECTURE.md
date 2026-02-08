@@ -20,7 +20,7 @@ Shake provides `shakeExtra :: HashMap TypeRep Dynamic` on `ShakeOptions`, readab
 
 ### Thread context tracking
 
-Shake runs rules in parallel across OS threads. When our wrapped `need` records an edge, it must know which rule is currently executing on this thread. We maintain a `TVar (Map ThreadId NodeId)` inside `TelemetryState`. Rule wrappers (`%>`, `phony`, `addOracle`, etc.) register the current thread's node ID before running the action body. Dependency wrappers (`need`, `askOracle`, etc.) look up the current thread's node ID to record the "from" end of each edge.
+Shake runs rules in parallel across OS threads. When our wrapped `need` records an edge, it must know which rule is currently executing on this thread. We maintain a strict `TVar (Map ThreadId NodeId)` (from `strict-stm`) inside `TelemetryState`. Rule wrappers (`%>`, `phony`, `addOracle`, etc.) register the current thread's node ID before running the action body. Dependency wrappers (`need`, `askOracle`, etc.) look up the current thread's node ID to record the "from" end of each edge.
 
 For `parallel`, `forP`, and `par`, we wrap these to propagate the parent thread's node ID into child threads before they execute.
 
@@ -101,13 +101,14 @@ data BuildGraph = BuildGraph
 ### TelemetryState
 
 ```haskell
+-- Using strict TVars from strict-stm to avoid space leaks
 data TelemetryState = TelemetryState
-  { tsNodes         :: !(TVar (IntMap Node))
-  , tsEdges         :: !(TVar [Edge])
-  , tsNextId        :: !(TVar Int)
-  , tsThreadContext :: !(TVar (Map ThreadId Int))  -- current node per thread
-  , tsBuildStart    :: !TimeSpec                    -- monotonic clock base
-  , tsLabelToId     :: !(TVar (HashMap Text Int))  -- dedup: label -> nodeId
+  { tsNodes         :: !(StrictTVar IO (IntMap Node))
+  , tsEdges         :: !(StrictTVar IO [Edge])
+  , tsNextId        :: !(StrictTVar IO Int)
+  , tsThreadContext :: !(StrictTVar IO (Map ThreadId Int))  -- current node per thread
+  , tsBuildStart    :: !TimeSpec                             -- monotonic clock base
+  , tsLabelToId     :: !(StrictTVar IO (HashMap Text Int))  -- dedup: label -> nodeId
   }
 ```
 
@@ -369,7 +370,7 @@ graph LR
 | `containers` | `IntMap`, `Map` for graph storage |
 | `unordered-containers` | `HashMap` for label dedup |
 | `vector` | `Vector` for frozen graph output |
-| `stm` | `TVar` for thread-safe mutable state |
+| `strict-stm` | Strict `TVar` for thread-safe mutable state (avoids space leaks) |
 | `hashable` | `Hashable` for HashMap keys |
 | `time` | `UTCTime` for build timestamps |
 | `clock` | `TimeSpec` for monotonic timing |
