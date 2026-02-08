@@ -45,6 +45,7 @@ test-suite shake-telemetry-tests
   other-modules:
     Test.Telemetry.CriticalPathProps
     Test.Telemetry.CriticalPathTest
+    Test.Telemetry.IntegrationTest
     Test.Telemetry.JsonTest
     Test.Telemetry.MermaidTest
     Test.Telemetry.ParityTest
@@ -53,6 +54,7 @@ test-suite shake-telemetry-tests
   build-depends:
     , aeson
     , base              >=4.19 && <5
+    , bytestring
     , containers
     , directory
     , filepath

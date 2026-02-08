@@ -4,6 +4,7 @@ import Test.Tasty
 
 import Test.Telemetry.CriticalPathProps (criticalPathProps)
 import Test.Telemetry.CriticalPathTest (criticalPathTests)
+import Test.Telemetry.IntegrationTest (integrationTests)
 import Test.Telemetry.JsonTest (jsonTests)
 import Test.Telemetry.MermaidTest (mermaidTests)
 import Test.Telemetry.ParityTest (parityTests)
@@ -24,4 +25,5 @@ tests =
     , mermaidTests
     , wrapTests
     , parityTests
+    , integrationTests
     ]
