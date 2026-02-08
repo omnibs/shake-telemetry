@@ -180,7 +180,7 @@ Implement in `Mermaid.hs`:
 
 ---
 
-## Phase 5: Shake API wrapping
+## Phase 5: Shake API wrapping [DONE]
 
 Implement all the wrapper functions. Each task covers a logical group of functions. Tests in this phase are unit tests that verify the wrapping mechanics (node/edge recording) using small Shake builds in-process.
 
