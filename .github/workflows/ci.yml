@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.8'
+          cabal-version: 'latest'
+
+      - name: Cache cabal store
+        uses: actions/cache@v4
+        with:
+          path: ~/.cabal/store
+          key: ${{ runner.os }}-ghc-9.8-cabal-${{ hashFiles('**/*.cabal', 'cabal.project') }}
+          restore-keys: |
+            ${{ runner.os }}-ghc-9.8-cabal-
+
+      - name: Update package list
+        run: cabal update
+
+      - name: Build dependencies
+        run: cabal build --only-dependencies --enable-tests
+
+      - name: Build
+        run: cabal build --enable-tests
+
+      - name: Run tests
+        run: cabal test --enable-tests --test-show-details=direct
