@@ -226,7 +226,7 @@ Wrap `parallel`, `forP`, `par`. Each captures the parent thread's node ID and in
 
 ---
 
-## Phase 6: Entry points and drop-in module
+## Phase 6: Entry points and drop-in module [DONE]
 
 Wire everything together into the user-facing API.
 
