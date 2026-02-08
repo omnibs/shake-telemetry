@@ -2,7 +2,7 @@
 
 This roadmap goes from an empty project to a fully working `shake-telemetry` library as described in PROBLEM.md and ARCHITECTURE.md. Each phase produces a testable milestone. Tasks within a phase are meant to be executed in order.
 
-## Phase 1: Project scaffolding
+## Phase 1: Project scaffolding [DONE]
 
 Stand up the Haskell project so it compiles, tests run (empty), and the Nix build works.
 
@@ -51,7 +51,7 @@ Create an `AGENTS.md` file with instructions for LLM agents working on this proj
 
 ---
 
-## Phase 2: Core data model and state management
+## Phase 2: Core data model and state management [DONE]
 
 Implement the graph types and the concurrent `TelemetryState`. This phase is pure library code with no Shake dependency -- it can be tested in isolation.
 
@@ -110,7 +110,7 @@ Test with `tasty`:
 
 ---
 
-## Phase 3: Critical path analysis
+## Phase 3: Critical path analysis [DONE]
 
 Implement the critical path algorithm as a pure function on `BuildGraph`. No Shake involvement.
 

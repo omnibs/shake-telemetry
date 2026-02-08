@@ -58,5 +58,11 @@ test/
 - Test framework: `tasty` + `tasty-hedgehog` + `hedgehog`
 - No global mutable state; telemetry state is threaded via Shake's `shakeExtra`
 
+## Workflow
+
+- Make small commits as you go (one per logical step, not one per phase).
+- When a phase in `ROADMAP.md` is complete, mark it with `[DONE]` in the heading (e.g. `## Phase 1: Project scaffolding [DONE]`).
+- Run `devenv shell -- cabal test --enable-tests` to verify before committing.
+
 <!-- TODO: Add linting/formatting instructions if a tool is adopted -->
 <!-- TODO: Add commit message conventions if desired -->
