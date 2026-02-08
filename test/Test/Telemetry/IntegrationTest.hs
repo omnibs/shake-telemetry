@@ -56,7 +56,11 @@ withTelemetryBuild name buildFn checkFn =
     let analyzed = computeCriticalPath graph
     checkFn tmpDir analyzed
 
--- | Helper to run a plain Shake build.
+-- | Run a Shake build using the raw (unwrapped) Shake.shake entry point.
+-- We can't use T.shake here because it creates its own TelemetryState and
+-- injects it into shakeExtra, overwriting the one that withTelemetryBuild
+-- already injected. That would leave withTelemetryBuild freezing an empty
+-- state while the real telemetry data lives in T.shake's private state.
 runBuild :: ShakeOptions -> T.Rules () -> IO ()
 runBuild = Shake.shake
 
