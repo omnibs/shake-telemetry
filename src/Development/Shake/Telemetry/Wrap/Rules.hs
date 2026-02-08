@@ -135,7 +135,7 @@ addOracleHash handler = Shake.addOracleHash $ \q -> do
 -- Batch
 
 batch :: Int -> ((a -> Action ()) -> Rules ()) -> (a -> Action b) -> ([b] -> Action ()) -> Rules ()
-batch maxBatch rules act collect = Shake.batch maxBatch rules wrappedAct collect
+batch maxBatch rules act collect = Shake.batch maxBatch rules wrappedAct wrappedCollect
   where
     wrappedAct a = do
       state <- getTelemetryState
@@ -144,3 +144,9 @@ batch maxBatch rules act collect = Shake.batch maxBatch rules wrappedAct collect
       result <- act a
       Shake.liftIO $ finishNode state nid
       pure result
+    wrappedCollect bs = do
+      state <- getTelemetryState
+      nid <- Shake.liftIO $ registerNode state "batch-collect" BatchNode
+      Shake.liftIO $ setThreadNode state nid
+      collect bs
+      Shake.liftIO $ finishNode state nid

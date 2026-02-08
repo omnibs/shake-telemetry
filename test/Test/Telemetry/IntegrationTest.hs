@@ -110,6 +110,7 @@ integrationTests =
     , testCase "7.4: parallel preserves edges" testParallel
     , testCase "7.6: timing plausibility" testTimingPlausibility
     , testCase "7.1/7.7: output files and idempotency" testOutputFiles
+    , testCase "batch collect has thread context" testBatchCollect
     , testCase "8.3: cached rules appear with no timing" testCachedRules
     , testCase "8.3b: fully cached build produces empty graph" testFullyCached
     , testCase "8.4: mixed cached and rebuilt" testMixedCachedRebuilt
@@ -364,6 +365,39 @@ testOutputFiles =
         assertEqual "same node labels across runs" labels1 labels2
         assertEqual "same edge count across runs" edges1 edges2
       _ -> assertFailure "could not extract structure from JSON"
+
+-- | Test: batch collect callback gets its own telemetry node and thread context.
+-- Regression test for "no thread context" crash when the collect callback
+-- (the last argument to batch) called wrapped functions like need or
+-- getEnvWithDefault. In multi-threaded builds, collect can run on a thread
+-- without inherited context, so batch must explicitly wrap it.
+testBatchCollect :: Assertion
+testBatchCollect =
+  withTelemetryBuild "batch-collect" buildFn checkFn
+  where
+    buildFn tmpDir opts = runBuild opts $ do
+      (tmpDir </> "dep.txt") T.%> \out ->
+        T.writeFile' out "shared-dep"
+
+      T.batch 3
+        ((tmpDir </> "*.batch") T.%>)
+        (\out -> pure out)
+        -- collect calls wrapped 'need' which requires thread context
+        (\outs -> do
+          T.need [tmpDir </> "dep.txt"]
+          mapM_ (\out -> T.writeFile' out "batched") outs
+        )
+
+      T.want [tmpDir </> "a.batch", tmpDir </> "b.batch"]
+
+    checkFn _tmpDir graph = do
+      -- The batch-collect node must exist with timing data, proving
+      -- that batch wraps the collect callback with its own telemetry
+      -- context (not relying on inherited context from other wrappers)
+      let collectNode = findNodeByLabel "batch-collect" graph
+      assertBool "batch-collect node exists" (isJust collectNode)
+      assertBool "batch-collect node has timing"
+        (isJust (collectNode >>= nodeDuration))
 
 -- | Test 8.3: Cached rules appear with no timing
 -- Two builds sharing the same shake database. Both builds use alwaysRerun on
