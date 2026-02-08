@@ -13,6 +13,7 @@ import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (isPrefixOf, sort)
+import Data.Maybe (isJust)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as Vector
@@ -107,6 +108,9 @@ integrationTests =
     , testCase "7.4: parallel preserves edges" testParallel
     , testCase "7.6: timing plausibility" testTimingPlausibility
     , testCase "7.1/7.7: output files and idempotency" testOutputFiles
+    , testCase "8.3: cached rules appear with no timing" testCachedRules
+    , testCase "8.3b: fully cached build produces empty graph" testFullyCached
+    , testCase "8.4: mixed cached and rebuilt" testMixedCachedRebuilt
     ]
 
 -- | Test 7.1: Linear chain A -> B -> C
@@ -358,3 +362,158 @@ testOutputFiles =
         assertEqual "same node labels across runs" labels1 labels2
         assertEqual "same edge count across runs" edges1 edges2
       _ -> assertFailure "could not extract structure from JSON"
+
+-- | Test 8.3: Cached rules appear with no timing
+-- Two builds sharing the same shake database. Both builds use alwaysRerun on
+-- main.txt so Shake records the volatile dependency. Build 1 is clean — both
+-- rules execute. Build 2 re-executes main.txt (alwaysRerun), while dep.txt
+-- is cached. The cached dep.txt appears as a placeholder node with no timing.
+testCachedRules :: Assertion
+testCachedRules =
+  withSystemTempDirectory "shake-integ-cached" $ \tmpDir -> do
+    let shakeDir = tmpDir </> ".shake"
+        mkOpts st = shakeOptions
+          { shakeFiles = shakeDir
+          , shakeVerbosity = T.Silent
+          , shakeExtra = T.addShakeExtra st (shakeExtra shakeOptions)
+          }
+
+    let rules = do
+          (tmpDir </> "dep.txt") T.%> \out ->
+            T.writeFile' out "dep-content"
+          (tmpDir </> "main.txt") T.%> \out -> do
+            T.alwaysRerun
+            T.need [tmpDir </> "dep.txt"]
+            T.writeFile' out "main-content"
+          T.want [tmpDir </> "main.txt"]
+
+    -- Build 1: clean build, both rules execute
+    state1 <- newTelemetryState
+    Shake.shake (mkOpts state1) rules
+    graph1 <- freezeGraph state1
+    let analyzed1 = computeCriticalPath graph1
+
+    -- Both nodes should have timing data after clean build
+    let depNode1 = findNodeByLabel "dep.txt" analyzed1
+    let mainNode1 = findNodeByLabel "main.txt" analyzed1
+    assertBool "clean build: dep.txt exists" (isJust depNode1)
+    assertBool "clean build: main.txt exists" (isJust mainNode1)
+    assertBool "clean build: dep.txt has duration"
+      (isJust (depNode1 >>= nodeDuration))
+    assertBool "clean build: main.txt has duration"
+      (isJust (mainNode1 >>= nodeDuration))
+
+    -- Build 2: main.txt re-executes (alwaysRerun), dep.txt is cached
+    state2 <- newTelemetryState
+    Shake.shake (mkOpts state2) rules
+    graph2 <- freezeGraph state2
+    let analyzed2 = computeCriticalPath graph2
+
+    -- main.txt re-executed: has timing
+    let mainNode2 = findNodeByLabel "main.txt" analyzed2
+    assertBool "incremental: main.txt exists" (isJust mainNode2)
+    assertBool "incremental: main.txt has duration"
+      (isJust (mainNode2 >>= nodeDuration))
+
+    -- dep.txt is cached: exists as placeholder with no timing
+    let depNode2 = findNodeByLabel "dep.txt" analyzed2
+    assertBool "incremental: dep.txt exists (placeholder)" (isJust depNode2)
+    assertEqual "incremental: dep.txt has no duration (cached)"
+      Nothing (depNode2 >>= nodeDuration)
+
+    -- Edge from main.txt to dep.txt still exists
+    case (mainNode2, depNode2) of
+      (Just mn, Just dn) -> do
+        let hasEdge = Vector.any
+              (\e -> edgeFrom e == nodeId mn && edgeTo e == nodeId dn)
+              (graphEdges analyzed2)
+        assertBool "incremental: edge main.txt -> dep.txt exists" hasEdge
+      _ -> assertFailure "missing nodes for edge check"
+
+-- | Test 8.3b: Fully cached build produces empty graph
+-- Two identical builds. Second build is fully cached — empty graph.
+testFullyCached :: Assertion
+testFullyCached =
+  withSystemTempDirectory "shake-integ-fullcache" $ \tmpDir -> do
+    let shakeDir = tmpDir </> ".shake"
+        mkOpts st = shakeOptions
+          { shakeFiles = shakeDir
+          , shakeVerbosity = T.Silent
+          , shakeExtra = T.addShakeExtra st (shakeExtra shakeOptions)
+          }
+        rules = do
+          (tmpDir </> "out.txt") T.%> \out ->
+            T.writeFile' out "content"
+          T.want [tmpDir </> "out.txt"]
+
+    -- Build 1: clean
+    state1 <- newTelemetryState
+    Shake.shake (mkOpts state1) rules
+
+    -- Build 2: nothing changed, everything cached
+    state2 <- newTelemetryState
+    Shake.shake (mkOpts state2) rules
+    graph2 <- freezeGraph state2
+
+    -- Graph should be empty — no rules executed
+    let nodeCount = IntMap.size (graphNodes graph2)
+    assertEqual "fully cached build: no nodes" 0 nodeCount
+
+-- | Test 8.4: Mixed cached and rebuilt
+-- Chain A -> B -> C. C forced to re-execute with alwaysRerun.
+-- B is a direct cached dependency (placeholder). A is a transitive
+-- dependency through cached B — absent from graph.
+testMixedCachedRebuilt :: Assertion
+testMixedCachedRebuilt =
+  withSystemTempDirectory "shake-integ-mixed" $ \tmpDir -> do
+    let shakeDir = tmpDir </> ".shake"
+        mkOpts st = shakeOptions
+          { shakeFiles = shakeDir
+          , shakeVerbosity = T.Silent
+          , shakeExtra = T.addShakeExtra st (shakeExtra shakeOptions)
+          }
+        rules = do
+          (tmpDir </> "a.txt") T.%> \out ->
+            T.writeFile' out "a"
+          (tmpDir </> "b.txt") T.%> \out -> do
+            T.need [tmpDir </> "a.txt"]
+            T.writeFile' out "b"
+          (tmpDir </> "c.txt") T.%> \out -> do
+            T.alwaysRerun
+            T.need [tmpDir </> "b.txt"]
+            T.writeFile' out "c"
+          T.want [tmpDir </> "c.txt"]
+
+    -- Build 1: clean
+    state1 <- newTelemetryState
+    Shake.shake (mkOpts state1) rules
+    graph1 <- freezeGraph state1
+    let analyzed1 = computeCriticalPath graph1
+
+    -- All 3 should have timing data
+    forM_ ["a.txt", "b.txt", "c.txt"] $ \name -> do
+      let mNode = findNodeByLabel name analyzed1
+      assertBool ("clean: " ++ Text.unpack name ++ " has duration")
+        (isJust (mNode >>= nodeDuration))
+
+    -- Build 2: incremental
+    state2 <- newTelemetryState
+    Shake.shake (mkOpts state2) rules
+    graph2 <- freezeGraph state2
+    let analyzed2 = computeCriticalPath graph2
+
+    -- c.txt re-executed: has timing
+    let cNode = findNodeByLabel "c.txt" analyzed2
+    assertBool "incremental: c.txt has duration"
+      (isJust (cNode >>= nodeDuration))
+
+    -- b.txt is direct dep of c.txt: placeholder, no timing
+    let bNode = findNodeByLabel "b.txt" analyzed2
+    assertBool "incremental: b.txt exists (placeholder)" (isJust bNode)
+    assertEqual "incremental: b.txt has no duration (cached)"
+      Nothing (bNode >>= nodeDuration)
+
+    -- a.txt is transitive through cached b.txt: absent
+    let aNode = findNodeByLabel "a.txt" analyzed2
+    assertBool "incremental: a.txt absent (transitive through cached)"
+      (not (isJust aNode))
