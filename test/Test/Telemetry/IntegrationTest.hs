@@ -1,10 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Test.Telemetry.IntegrationTest (integrationTests) where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
+import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (isPrefixOf)
@@ -13,6 +16,7 @@ import Data.Text qualified as T
 import Data.Vector qualified as Vector
 import Development.Shake (ShakeOptions (..), shakeOptions)
 import Development.Shake qualified as Shake
+import Development.Shake.Classes (Binary, Hashable, NFData, Typeable)
 import Development.Shake.Telemetry.CriticalPath (computeCriticalPath)
 import Development.Shake.Telemetry.Graph
 import Development.Shake.Telemetry.State (TelemetryState, freezeGraph, newTelemetryState)
@@ -20,11 +24,19 @@ import Development.Shake.Telemetry.Wrap.Actions qualified as WA
 import Development.Shake.Telemetry.Wrap.Entry qualified as TE
 import Development.Shake.Telemetry.Wrap.Parallel qualified as WP
 import Development.Shake.Telemetry.Wrap.Rules qualified as WR
+import GHC.Generics (Generic)
 import System.Directory (doesFileExist)
-import System.FilePath ((</>), (-<.>))
+import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
 import Test.Tasty.HUnit
+
+-- Oracle key type for test 7.3
+newtype VersionQ = VersionQ () deriving (Eq, Show, Typeable, Generic)
+instance Hashable VersionQ
+instance Binary VersionQ
+instance NFData VersionQ
+type instance Shake.RuleResult VersionQ = String
 
 -- | Run a Shake build with telemetry, returning the analyzed graph.
 withTelemetryBuild
@@ -73,8 +85,250 @@ edgesTo :: Int -> BuildGraph -> Int
 edgesTo nid graph =
   Vector.length $ Vector.filter (\e -> edgeTo e == nid) (graphEdges graph)
 
+-- | Read a file strictly as a ByteString (closes handle immediately).
+readFileStrict :: FilePath -> IO BS.ByteString
+readFileStrict = BS.readFile
+
+-- | Read a file strictly as a String (closes handle immediately).
+readFileStrictText :: FilePath -> IO String
+readFileStrictText path = do
+  bs <- BS.readFile path
+  pure (map (toEnum . fromEnum) (BS.unpack bs))
+
 integrationTests :: TestTree
 integrationTests =
   testGroup
     "Integration"
-    []
+    [ testCase "7.1: linear chain A -> B -> C" testLinearChain
+    , testCase "7.2: diamond with slow branch" testDiamond
+    , testCase "7.3: oracle build" testOracle
+    , testCase "7.4: parallel preserves edges" testParallel
+    , testCase "7.6: timing plausibility" testTimingPlausibility
+    , testCase "7.1/7.7: output files and idempotency" testOutputFiles
+    ]
+
+-- | Test 7.1: Linear chain A -> B -> C
+-- a.txt is a leaf, b.txt needs a.txt, c.txt needs b.txt.
+testLinearChain :: Assertion
+testLinearChain =
+  withTelemetryBuild "linear" buildFn checkFn
+  where
+    buildFn tmpDir opts = runBuild opts $ do
+      (tmpDir </> "a.txt") WR.%> \out ->
+        Shake.writeFile' out "a-content"
+      (tmpDir </> "b.txt") WR.%> \out -> do
+        WA.need [tmpDir </> "a.txt"]
+        Shake.writeFile' out "b-content"
+      (tmpDir </> "c.txt") WR.%> \out -> do
+        WA.need [tmpDir </> "b.txt"]
+        Shake.writeFile' out "c-content"
+      Shake.want [tmpDir </> "c.txt"]
+
+    checkFn _tmpDir graph = do
+      let fileNodes = nodesOfType FileNode graph
+      assertBool
+        ("expected 3 FileNodes, got " ++ show (length fileNodes))
+        (length fileNodes >= 3)
+      let edgeCount = Vector.length (graphEdges graph)
+      assertBool
+        ("expected >= 2 edges, got " ++ show edgeCount)
+        (edgeCount >= 2)
+      let cpLen = length (graphCriticalPath graph)
+      assertBool
+        ("expected critical path with 3 nodes, got " ++ show cpLen)
+        (cpLen == 3)
+
+-- | Test 7.2: Diamond dependency with slow branch
+-- a.txt (leaf), b.txt needs a.txt + 100ms delay, c.txt needs a.txt (fast),
+-- d.txt needs b.txt and c.txt. Critical path should go through b.txt.
+testDiamond :: Assertion
+testDiamond =
+  withTelemetryBuild "diamond" buildFn checkFn
+  where
+    buildFn tmpDir opts = runBuild opts $ do
+      (tmpDir </> "a.txt") WR.%> \out ->
+        Shake.writeFile' out "a-content"
+      (tmpDir </> "b.txt") WR.%> \out -> do
+        WA.need [tmpDir </> "a.txt"]
+        Shake.liftIO $ threadDelay 100000
+        Shake.writeFile' out "b-content"
+      (tmpDir </> "c.txt") WR.%> \out -> do
+        WA.need [tmpDir </> "a.txt"]
+        Shake.writeFile' out "c-content"
+      (tmpDir </> "d.txt") WR.%> \out -> do
+        WA.need [tmpDir </> "b.txt", tmpDir </> "c.txt"]
+        Shake.writeFile' out "d-content"
+      Shake.want [tmpDir </> "d.txt"]
+
+    checkFn tmpDir graph = do
+      let fileNodes = nodesOfType FileNode graph
+      assertBool
+        ("expected 4 FileNodes, got " ++ show (length fileNodes))
+        (length fileNodes >= 4)
+      let edgeCount = Vector.length (graphEdges graph)
+      assertBool
+        ("expected >= 4 edges, got " ++ show edgeCount)
+        (edgeCount >= 4)
+      -- Critical path should go through the slow branch (b.txt)
+      let cpNodeIds = graphCriticalPath graph
+          cpLabels = map (\nid -> maybe "" nodeLabel (IntMap.lookup nid (graphNodes graph))) cpNodeIds
+          hasBtxt = any (T.isInfixOf "b.txt") cpLabels
+      assertBool
+        ("critical path should include b.txt, labels: " ++ show cpLabels)
+        hasBtxt
+
+-- | Test 7.3: Oracle build
+-- addOracle for VersionQ returning "1.0.0", file rule for version.txt
+-- that calls askOracle (VersionQ ()). Should see an OracleNode.
+testOracle :: Assertion
+testOracle =
+  withTelemetryBuild "oracle" buildFn checkFn
+  where
+    buildFn tmpDir opts = runBuild opts $ do
+      _ <- WR.addOracle $ \(VersionQ ()) -> pure "1.0.0"
+      (tmpDir </> "version.txt") WR.%> \out -> do
+        ver <- WA.askOracle (VersionQ ())
+        Shake.writeFile' out ver
+      Shake.want [tmpDir </> "version.txt"]
+
+    checkFn _tmpDir graph = do
+      let oracleNodes = nodesOfType OracleNode graph
+      assertBool
+        ("expected at least one OracleNode, got " ++ show (length oracleNodes))
+        (not (null oracleNodes))
+      -- The version.txt file node should have outgoing edges (to the oracle)
+      let mVersionNode = findNodeByLabel "version.txt" graph
+      case mVersionNode of
+        Nothing -> assertFailure "version.txt node not found"
+        Just vNode -> do
+          let outEdges = edgesFrom (nodeId vNode) graph
+          assertBool
+            ("version.txt should have outgoing edges, got " ++ show outEdges)
+            (outEdges > 0)
+
+-- | Test 7.4: Parallel preserves edges
+-- *.dep rule writes content, main.txt uses WP.parallel to need x.dep, y.dep, z.dep.
+testParallel :: Assertion
+testParallel =
+  withTelemetryBuild "parallel" buildFn checkFn
+  where
+    buildFn tmpDir opts = runBuild opts $ do
+      (tmpDir </> "x.dep") WR.%> \out -> Shake.writeFile' out "x"
+      (tmpDir </> "y.dep") WR.%> \out -> Shake.writeFile' out "y"
+      (tmpDir </> "z.dep") WR.%> \out -> Shake.writeFile' out "z"
+      (tmpDir </> "main.txt") WR.%> \out -> do
+        _ <- WP.parallel
+          [ WA.need [tmpDir </> "x.dep"]
+          , WA.need [tmpDir </> "y.dep"]
+          , WA.need [tmpDir </> "z.dep"]
+          ]
+        Shake.writeFile' out "main"
+      Shake.want [tmpDir </> "main.txt"]
+
+    checkFn tmpDir graph = do
+      -- main.txt should have >= 3 outgoing edges (to x.dep, y.dep, z.dep)
+      let mMainNode = findNodeByLabel "main.txt" graph
+      case mMainNode of
+        Nothing -> assertFailure "main.txt node not found"
+        Just mainNode -> do
+          let outEdges = edgesFrom (nodeId mainNode) graph
+          assertBool
+            ("main.txt should have >= 3 edges, got " ++ show outEdges)
+            (outEdges >= 3)
+      -- All 3 dep nodes should exist
+      forM_ ["x.dep", "y.dep", "z.dep"] $ \dep ->
+        assertBool (T.unpack dep ++ " node should exist") $
+          case findNodeByLabel dep graph of
+            Just _ -> True
+            Nothing -> False
+
+-- | Test 7.6: Timing plausibility
+-- slow.txt with 50ms delay, fast.txt needs slow.txt.
+-- Check: durations >= 0, end >= start, CP duration within bounds.
+testTimingPlausibility :: Assertion
+testTimingPlausibility =
+  withTelemetryBuild "timing" buildFn checkFn
+  where
+    buildFn tmpDir opts = runBuild opts $ do
+      (tmpDir </> "slow.txt") WR.%> \out -> do
+        Shake.liftIO $ threadDelay 50000
+        Shake.writeFile' out "slow"
+      (tmpDir </> "fast.txt") WR.%> \out -> do
+        WA.need [tmpDir </> "slow.txt"]
+        Shake.writeFile' out "fast"
+      Shake.want [tmpDir </> "fast.txt"]
+
+    checkFn _tmpDir graph = do
+      let nodes = IntMap.elems (graphNodes graph)
+      -- All durations should be >= 0
+      forM_ nodes $ \n ->
+        case nodeDuration n of
+          Just d -> assertBool
+            ("duration should be >= 0 for " ++ T.unpack (nodeLabel n) ++ ", got " ++ show d)
+            (d >= 0)
+          Nothing -> pure ()
+      -- All end times should be >= start times
+      forM_ nodes $ \n ->
+        case (nodeStartTime n, nodeEndTime n) of
+          (Just s, Just e) -> assertBool
+            ("end >= start for " ++ T.unpack (nodeLabel n) ++ ", start=" ++ show s ++ " end=" ++ show e)
+            (e >= s)
+          _ -> pure ()
+      -- CP duration should be <= total build time + epsilon
+      let epsilon = 0.05  -- 50ms tolerance
+          cpNodeIds = graphCriticalPath graph
+          cpDuration = sum [ maybe 0 id (nodeDuration n)
+                           | nid <- cpNodeIds
+                           , Just n <- [IntMap.lookup nid (graphNodes graph)]
+                           ]
+          totalTime = graphTotalSeconds graph
+      assertBool
+        ("CP duration (" ++ show cpDuration ++ ") should be <= total time (" ++ show totalTime ++ ") + epsilon")
+        (cpDuration <= totalTime + epsilon)
+      -- CP duration should be >= max single node duration - epsilon
+      let allDurations = [ d | n <- nodes, Just d <- [nodeDuration n] ]
+          maxDur = if null allDurations then 0 else maximum allDurations
+      assertBool
+        ("CP duration (" ++ show cpDuration ++ ") should be >= max node duration (" ++ show maxDur ++ ") - epsilon")
+        (cpDuration >= maxDur - epsilon)
+
+-- | Test 7.1/7.7: Output files and idempotency
+-- Use TE.shake to write output files, verify JSON and Mermaid, run again for idempotency.
+testOutputFiles :: Assertion
+testOutputFiles =
+  withSystemTempDirectory "shake-integ-output" $ \tmpDir -> do
+    let shakeDir = tmpDir </> ".shake"
+        opts = shakeOptions
+          { shakeFiles = shakeDir
+          , shakeVerbosity = Shake.Silent
+          }
+        jsonPath = shakeDir </> "telemetry" </> "build-graph.json"
+        mmdPath = shakeDir </> "telemetry" </> "critical-path.mmd"
+        rules = do
+          (tmpDir </> "out.txt") Shake.%> \out ->
+            Shake.writeFile' out "output"
+          Shake.want [tmpDir </> "out.txt"]
+
+    -- First build
+    TE.shake opts rules
+    -- Check JSON file
+    jsonExists <- doesFileExist jsonPath
+    assertBool "build-graph.json should exist" jsonExists
+    jsonBytes <- readFileStrict jsonPath
+    case Aeson.decode (BSL.fromStrict jsonBytes) :: Maybe Aeson.Value of
+      Nothing -> assertFailure "build-graph.json should be valid JSON"
+      Just _ -> pure ()
+    -- Check Mermaid file
+    mmdExists <- doesFileExist mmdPath
+    assertBool "critical-path.mmd should exist" mmdExists
+    mmdContent <- readFileStrictText mmdPath
+    assertBool
+      ("Mermaid file should start with 'graph LR', got: " ++ take 40 mmdContent)
+      ("graph LR" `isPrefixOf` mmdContent)
+
+    -- Idempotency: run the same build again
+    TE.shake opts rules
+    jsonBytes2 <- readFileStrict jsonPath
+    case Aeson.decode (BSL.fromStrict jsonBytes2) :: Maybe Aeson.Value of
+      Nothing -> assertFailure "build-graph.json should still be valid JSON after second build"
+      Just _ -> pure ()
