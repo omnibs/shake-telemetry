@@ -15,6 +15,7 @@ library
     Development.Shake.Telemetry.Json
     Development.Shake.Telemetry.Mermaid
     Development.Shake.Telemetry.State
+  other-modules:
     Development.Shake.Telemetry.Wrap.Actions
     Development.Shake.Telemetry.Wrap.Entry
     Development.Shake.Telemetry.Wrap.Parallel

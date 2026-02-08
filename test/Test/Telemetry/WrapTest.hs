@@ -6,11 +6,9 @@ import Data.IntMap.Strict qualified as IntMap
 import Data.Vector qualified as Vector
 import Development.Shake (ShakeOptions (..), shakeOptions)
 import Development.Shake qualified as Shake
+import Development.Shake.Telemetry qualified as T
 import Development.Shake.Telemetry.Graph
 import Development.Shake.Telemetry.State (TelemetryState, freezeGraph, newTelemetryState)
-import Development.Shake.Telemetry.Wrap.Actions qualified as WA
-import Development.Shake.Telemetry.Wrap.Parallel qualified as WP
-import Development.Shake.Telemetry.Wrap.Rules qualified as WR
 import System.FilePath ((-<.>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
@@ -41,7 +39,7 @@ testFileRule =
     state <- newTelemetryState
     let opts = mkOpts tmpDir state
     Shake.shake opts $ do
-      (tmpDir ++ "//*.txt") WR.%> \out -> Shake.writeFile' out "content"
+      (tmpDir ++ "//*.txt") T.%> \out -> Shake.writeFile' out "content"
       Shake.want [tmpDir ++ "/test.txt"]
     graph <- freezeGraph state
     let nodes = IntMap.elems (graphNodes graph)
@@ -57,7 +55,7 @@ testPhonyRule =
     state <- newTelemetryState
     let opts = mkOpts tmpDir state
     Shake.shake opts $ do
-      WR.phony "clean" $ pure ()
+      T.phony "clean" $ pure ()
       Shake.action $ Shake.need ["clean"]
     graph <- freezeGraph state
     let nodes = IntMap.elems (graphNodes graph)
@@ -71,11 +69,11 @@ testNeedEdges =
     let opts = mkOpts tmpDir state
     Shake.shake opts $ do
       -- Rule for .src files (the dependency)
-      (tmpDir ++ "//*.src") WR.%> \out -> Shake.writeFile' out "source"
+      (tmpDir ++ "//*.src") T.%> \out -> Shake.writeFile' out "source"
       -- Rule for .out files that needs the .src file
-      (tmpDir ++ "//*.out") WR.%> \out -> do
+      (tmpDir ++ "//*.out") T.%> \out -> do
         let src = out -<.> "src"
-        WA.need [src]
+        T.need [src]
         Shake.writeFile' out "output"
       Shake.want [tmpDir ++ "/test.out"]
     graph <- freezeGraph state
@@ -89,12 +87,12 @@ testParallelContext =
     let opts = mkOpts tmpDir state
     Shake.shake opts $ do
       -- Rules for individual files
-      (tmpDir ++ "//*.dep") WR.%> \out -> Shake.writeFile' out "dep"
+      (tmpDir ++ "//*.dep") T.%> \out -> Shake.writeFile' out "dep"
       -- Rule that uses parallel to need two dependencies
-      (tmpDir ++ "//*.all") WR.%> \out -> do
-        _ <- WP.parallel
-          [ WA.need [tmpDir ++ "/a.dep"]
-          , WA.need [tmpDir ++ "/b.dep"]
+      (tmpDir ++ "//*.all") T.%> \out -> do
+        _ <- T.parallel
+          [ T.need [tmpDir ++ "/a.dep"]
+          , T.need [tmpDir ++ "/b.dep"]
           ]
         Shake.writeFile' out "all"
       Shake.want [tmpDir ++ "/test.all"]
