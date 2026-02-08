@@ -6,6 +6,7 @@ module Test.Telemetry.IntegrationTest (integrationTests) where
 
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
+import Control.Monad.IO.Class (liftIO)
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
@@ -13,18 +14,14 @@ import Data.ByteString.Lazy qualified as BSL
 import Data.IntMap.Strict qualified as IntMap
 import Data.List (isPrefixOf, sort)
 import Data.Text (Text)
-import Data.Text qualified as T
+import Data.Text qualified as Text
 import Data.Vector qualified as Vector
-import Development.Shake (ShakeOptions (..), shakeOptions)
-import Development.Shake qualified as Shake
-import Development.Shake.Classes (Binary, Hashable, NFData, Typeable)
+import Development.Shake qualified as Shake (shake)
+import Development.Shake.Telemetry qualified as T
+import Development.Shake.Telemetry (Binary, Hashable, NFData, ShakeOptions (..), Typeable, shakeOptions)
 import Development.Shake.Telemetry.CriticalPath (computeCriticalPath)
 import Development.Shake.Telemetry.Graph
-import Development.Shake.Telemetry.State (TelemetryState, freezeGraph, newTelemetryState)
-import Development.Shake.Telemetry.Wrap.Actions qualified as WA
-import Development.Shake.Telemetry.Wrap.Entry qualified as TE
-import Development.Shake.Telemetry.Wrap.Parallel qualified as WP
-import Development.Shake.Telemetry.Wrap.Rules qualified as WR
+import Development.Shake.Telemetry.State (freezeGraph, newTelemetryState)
 import GHC.Generics (Generic)
 import System.Directory (doesFileExist, removeDirectoryRecursive)
 import System.FilePath ((</>))
@@ -37,7 +34,7 @@ newtype VersionQ = VersionQ () deriving (Eq, Show, Typeable, Generic)
 instance Hashable VersionQ
 instance Binary VersionQ
 instance NFData VersionQ
-type instance Shake.RuleResult VersionQ = String
+type instance T.RuleResult VersionQ = String
 
 -- | Run a Shake build with telemetry, returning the analyzed graph.
 withTelemetryBuild
@@ -51,8 +48,8 @@ withTelemetryBuild name buildFn checkFn =
     let opts =
           shakeOptions
             { shakeFiles = tmpDir </> ".shake"
-            , shakeVerbosity = Shake.Silent
-            , shakeExtra = Shake.addShakeExtra state (shakeExtra shakeOptions)
+            , shakeVerbosity = T.Silent
+            , shakeExtra = T.addShakeExtra state (shakeExtra shakeOptions)
             }
     buildFn tmpDir opts
     graph <- freezeGraph state
@@ -60,7 +57,7 @@ withTelemetryBuild name buildFn checkFn =
     checkFn tmpDir analyzed
 
 -- | Helper to run a plain Shake build.
-runBuild :: ShakeOptions -> Shake.Rules () -> IO ()
+runBuild :: ShakeOptions -> T.Rules () -> IO ()
 runBuild = Shake.shake
 
 -- | Find all nodes of a given type.
@@ -72,7 +69,7 @@ nodesOfType ntype graph =
 findNodeByLabel :: Text -> BuildGraph -> Maybe Node
 findNodeByLabel substr graph =
   let nodes = IntMap.elems (graphNodes graph)
-  in case filter (\n -> substr `T.isInfixOf` nodeLabel n) nodes of
+  in case filter (\n -> substr `Text.isInfixOf` nodeLabel n) nodes of
     (n : _) -> Just n
     [] -> Nothing
 
@@ -115,15 +112,15 @@ testLinearChain =
   withTelemetryBuild "linear" buildFn checkFn
   where
     buildFn tmpDir opts = runBuild opts $ do
-      (tmpDir </> "a.txt") WR.%> \out ->
-        Shake.writeFile' out "a-content"
-      (tmpDir </> "b.txt") WR.%> \out -> do
-        WA.need [tmpDir </> "a.txt"]
-        Shake.writeFile' out "b-content"
-      (tmpDir </> "c.txt") WR.%> \out -> do
-        WA.need [tmpDir </> "b.txt"]
-        Shake.writeFile' out "c-content"
-      Shake.want [tmpDir </> "c.txt"]
+      (tmpDir </> "a.txt") T.%> \out ->
+        T.writeFile' out "a-content"
+      (tmpDir </> "b.txt") T.%> \out -> do
+        T.need [tmpDir </> "a.txt"]
+        T.writeFile' out "b-content"
+      (tmpDir </> "c.txt") T.%> \out -> do
+        T.need [tmpDir </> "b.txt"]
+        T.writeFile' out "c-content"
+      T.want [tmpDir </> "c.txt"]
 
     checkFn _tmpDir graph = do
       let fileNodes = nodesOfType FileNode graph
@@ -143,19 +140,19 @@ testDiamond =
   withTelemetryBuild "diamond" buildFn checkFn
   where
     buildFn tmpDir opts = runBuild opts $ do
-      (tmpDir </> "a.txt") WR.%> \out ->
-        Shake.writeFile' out "a-content"
-      (tmpDir </> "b.txt") WR.%> \out -> do
-        WA.need [tmpDir </> "a.txt"]
-        Shake.liftIO $ threadDelay 100000
-        Shake.writeFile' out "b-content"
-      (tmpDir </> "c.txt") WR.%> \out -> do
-        WA.need [tmpDir </> "a.txt"]
-        Shake.writeFile' out "c-content"
-      (tmpDir </> "d.txt") WR.%> \out -> do
-        WA.need [tmpDir </> "b.txt", tmpDir </> "c.txt"]
-        Shake.writeFile' out "d-content"
-      Shake.want [tmpDir </> "d.txt"]
+      (tmpDir </> "a.txt") T.%> \out ->
+        T.writeFile' out "a-content"
+      (tmpDir </> "b.txt") T.%> \out -> do
+        T.need [tmpDir </> "a.txt"]
+        liftIO $ threadDelay 100000
+        T.writeFile' out "b-content"
+      (tmpDir </> "c.txt") T.%> \out -> do
+        T.need [tmpDir </> "a.txt"]
+        T.writeFile' out "c-content"
+      (tmpDir </> "d.txt") T.%> \out -> do
+        T.need [tmpDir </> "b.txt", tmpDir </> "c.txt"]
+        T.writeFile' out "d-content"
+      T.want [tmpDir </> "d.txt"]
 
     checkFn _tmpDir graph = do
       let fileNodes = nodesOfType FileNode graph
@@ -167,7 +164,7 @@ testDiamond =
       -- Critical path should go through the slow branch (b.txt)
       let cpNodeIds = graphCriticalPath graph
           cpLabels = map (\nid -> maybe "" nodeLabel (IntMap.lookup nid (graphNodes graph))) cpNodeIds
-          hasBtxt = any (T.isInfixOf "b.txt") cpLabels
+          hasBtxt = any (Text.isInfixOf "b.txt") cpLabels
       assertBool
         ("critical path should include b.txt, labels: " ++ show cpLabels)
         hasBtxt
@@ -180,11 +177,11 @@ testOracle =
   withTelemetryBuild "oracle" buildFn checkFn
   where
     buildFn tmpDir opts = runBuild opts $ do
-      _ <- WR.addOracle $ \(VersionQ ()) -> pure "1.0.0"
-      (tmpDir </> "version.txt") WR.%> \out -> do
-        ver <- WA.askOracle (VersionQ ())
-        Shake.writeFile' out ver
-      Shake.want [tmpDir </> "version.txt"]
+      _ <- T.addOracle $ \(VersionQ ()) -> pure "1.0.0"
+      (tmpDir </> "version.txt") T.%> \out -> do
+        ver <- T.askOracle (VersionQ ())
+        T.writeFile' out ver
+      T.want [tmpDir </> "version.txt"]
 
     checkFn _tmpDir graph = do
       let oracleNodes = nodesOfType OracleNode graph
@@ -202,23 +199,23 @@ testOracle =
             (outEdges > 0)
 
 -- | Test 7.4: Parallel preserves edges
--- *.dep rule writes content, main.txt uses WP.parallel to need x.dep, y.dep, z.dep.
+-- *.dep rule writes content, main.txt uses T.parallel to need x.dep, y.dep, z.dep.
 testParallel :: Assertion
 testParallel =
   withTelemetryBuild "parallel" buildFn checkFn
   where
     buildFn tmpDir opts = runBuild opts $ do
-      (tmpDir </> "x.dep") WR.%> \out -> Shake.writeFile' out "x"
-      (tmpDir </> "y.dep") WR.%> \out -> Shake.writeFile' out "y"
-      (tmpDir </> "z.dep") WR.%> \out -> Shake.writeFile' out "z"
-      (tmpDir </> "main.txt") WR.%> \out -> do
-        _ <- WP.parallel
-          [ WA.need [tmpDir </> "x.dep"]
-          , WA.need [tmpDir </> "y.dep"]
-          , WA.need [tmpDir </> "z.dep"]
+      (tmpDir </> "x.dep") T.%> \out -> T.writeFile' out "x"
+      (tmpDir </> "y.dep") T.%> \out -> T.writeFile' out "y"
+      (tmpDir </> "z.dep") T.%> \out -> T.writeFile' out "z"
+      (tmpDir </> "main.txt") T.%> \out -> do
+        _ <- T.parallel
+          [ T.need [tmpDir </> "x.dep"]
+          , T.need [tmpDir </> "y.dep"]
+          , T.need [tmpDir </> "z.dep"]
           ]
-        Shake.writeFile' out "main"
-      Shake.want [tmpDir </> "main.txt"]
+        T.writeFile' out "main"
+      T.want [tmpDir </> "main.txt"]
 
     checkFn tmpDir graph = do
       -- main.txt should have >= 3 outgoing edges (to x.dep, y.dep, z.dep)
@@ -232,7 +229,7 @@ testParallel =
             (outEdges >= 3)
       -- All 3 dep nodes should exist
       forM_ ["x.dep", "y.dep", "z.dep"] $ \dep ->
-        assertBool (T.unpack dep ++ " node should exist") $
+        assertBool (Text.unpack dep ++ " node should exist") $
           case findNodeByLabel dep graph of
             Just _ -> True
             Nothing -> False
@@ -245,13 +242,13 @@ testTimingPlausibility =
   withTelemetryBuild "timing" buildFn checkFn
   where
     buildFn tmpDir opts = runBuild opts $ do
-      (tmpDir </> "slow.txt") WR.%> \out -> do
-        Shake.liftIO $ threadDelay 50000
-        Shake.writeFile' out "slow"
-      (tmpDir </> "fast.txt") WR.%> \out -> do
-        WA.need [tmpDir </> "slow.txt"]
-        Shake.writeFile' out "fast"
-      Shake.want [tmpDir </> "fast.txt"]
+      (tmpDir </> "slow.txt") T.%> \out -> do
+        liftIO $ threadDelay 50000
+        T.writeFile' out "slow"
+      (tmpDir </> "fast.txt") T.%> \out -> do
+        T.need [tmpDir </> "slow.txt"]
+        T.writeFile' out "fast"
+      T.want [tmpDir </> "fast.txt"]
 
     checkFn _tmpDir graph = do
       let nodes = IntMap.elems (graphNodes graph)
@@ -259,14 +256,14 @@ testTimingPlausibility =
       forM_ nodes $ \n ->
         case nodeDuration n of
           Just d -> assertBool
-            ("duration should be >= 0 for " ++ T.unpack (nodeLabel n) ++ ", got " ++ show d)
+            ("duration should be >= 0 for " ++ Text.unpack (nodeLabel n) ++ ", got " ++ show d)
             (d >= 0)
           Nothing -> pure ()
       -- All end times should be >= start times
       forM_ nodes $ \n ->
         case (nodeStartTime n, nodeEndTime n) of
           (Just s, Just e) -> assertBool
-            ("end >= start for " ++ T.unpack (nodeLabel n) ++ ", start=" ++ show s ++ " end=" ++ show e)
+            ("end >= start for " ++ Text.unpack (nodeLabel n) ++ ", start=" ++ show s ++ " end=" ++ show e)
             (e >= s)
           _ -> pure ()
       -- CP duration should be <= total build time + epsilon
@@ -288,7 +285,7 @@ testTimingPlausibility =
         (cpDuration >= maxDur - epsilon)
 
 -- | Test 7.1/7.7: Output files and idempotency
--- Use TE.shake to write output files, verify JSON and Mermaid, run again for idempotency.
+-- Use T.shake to write output files, verify JSON and Mermaid, run again for idempotency.
 -- Verify both runs produce same graph structure (same nodes and edges).
 testOutputFiles :: Assertion
 testOutputFiles =
@@ -296,17 +293,17 @@ testOutputFiles =
     let shakeDir = tmpDir </> ".shake"
         opts = shakeOptions
           { shakeFiles = shakeDir
-          , shakeVerbosity = Shake.Silent
+          , shakeVerbosity = T.Silent
           }
         jsonPath = shakeDir </> "telemetry" </> "build-graph.json"
         mmdPath = shakeDir </> "telemetry" </> "critical-path.mmd"
         rules = do
-          (tmpDir </> "out.txt") WR.%> \out ->
-            Shake.writeFile' out "output"
-          Shake.want [tmpDir </> "out.txt"]
+          (tmpDir </> "out.txt") T.%> \out ->
+            T.writeFile' out "output"
+          T.want [tmpDir </> "out.txt"]
 
     -- First build
-    TE.shake opts rules
+    T.shake opts rules
     -- Check JSON file
     jsonExists <- doesFileExist jsonPath
     assertBool "build-graph.json should exist" jsonExists
@@ -324,7 +321,7 @@ testOutputFiles =
 
     -- Idempotency: clean shake database and run the same build again
     removeDirectoryRecursive shakeDir
-    TE.shake opts rules
+    T.shake opts rules
     -- Verify JSON still valid
     jsonBytes2 <- readFileStrict jsonPath
     json2 <- case Aeson.decode (BSL.fromStrict jsonBytes2) :: Maybe Aeson.Value of
@@ -342,7 +339,7 @@ testOutputFiles =
           edgesVal <- KM.lookup "edges" obj
           nodeLabels <- case nodesVal of
             Aeson.Array arr -> Just
-              [ T.unpack lbl
+              [ Text.unpack lbl
               | Aeson.Object nObj <- Vector.toList arr
               , Just (Aeson.String lbl) <- [KM.lookup "label" nObj]
               ]
