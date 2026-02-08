@@ -254,7 +254,7 @@ Write a test (or compile-time check) that the set of names exported by `Developm
 
 ---
 
-## Phase 7: Integration testing
+## Phase 7: Integration testing [DONE]
 
 End-to-end tests that run real Shake builds via `Development.Shake.Telemetry` and verify the full pipeline: telemetry collection, graph construction, critical path analysis, JSON output, and Mermaid output.
 
