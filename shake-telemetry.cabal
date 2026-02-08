@@ -48,15 +48,20 @@ test-suite shake-telemetry-tests
     Test.Telemetry.JsonTest
     Test.Telemetry.MermaidTest
     Test.Telemetry.StateTest
+    Test.Telemetry.WrapTest
   build-depends:
     , aeson
     , base              >=4.19 && <5
     , containers
+    , directory
+    , filepath
     , hedgehog
+    , shake
     , shake-telemetry
     , tasty
     , tasty-hedgehog
     , tasty-hunit
+    , temporary
     , text
     , time
     , vector

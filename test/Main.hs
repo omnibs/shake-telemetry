@@ -7,6 +7,7 @@ import Test.Telemetry.CriticalPathTest (criticalPathTests)
 import Test.Telemetry.JsonTest (jsonTests)
 import Test.Telemetry.MermaidTest (mermaidTests)
 import Test.Telemetry.StateTest (stateTests)
+import Test.Telemetry.WrapTest (wrapTests)
 
 main :: IO ()
 main = defaultMain tests
@@ -20,4 +21,5 @@ tests =
     , criticalPathProps
     , jsonTests
     , mermaidTests
+    , wrapTests
     ]
