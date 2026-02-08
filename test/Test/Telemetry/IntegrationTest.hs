@@ -7,10 +7,11 @@ module Test.Telemetry.IntegrationTest (integrationTests) where
 import Control.Concurrent (threadDelay)
 import Control.Monad (forM_)
 import Data.Aeson qualified as Aeson
+import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as BSL
 import Data.IntMap.Strict qualified as IntMap
-import Data.List (isPrefixOf)
+import Data.List (isPrefixOf, sort)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Vector qualified as Vector
@@ -25,7 +26,7 @@ import Development.Shake.Telemetry.Wrap.Entry qualified as TE
 import Development.Shake.Telemetry.Wrap.Parallel qualified as WP
 import Development.Shake.Telemetry.Wrap.Rules qualified as WR
 import GHC.Generics (Generic)
-import System.Directory (doesFileExist)
+import System.Directory (doesFileExist, removeDirectoryRecursive)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import Test.Tasty
@@ -126,17 +127,13 @@ testLinearChain =
 
     checkFn _tmpDir graph = do
       let fileNodes = nodesOfType FileNode graph
-      assertBool
-        ("expected 3 FileNodes, got " ++ show (length fileNodes))
-        (length fileNodes >= 3)
+      assertEqual "expected 3 FileNodes" 3 (length fileNodes)
       let edgeCount = Vector.length (graphEdges graph)
       assertBool
         ("expected >= 2 edges, got " ++ show edgeCount)
         (edgeCount >= 2)
       let cpLen = length (graphCriticalPath graph)
-      assertBool
-        ("expected critical path with 3 nodes, got " ++ show cpLen)
-        (cpLen == 3)
+      assertEqual "critical path has 3 nodes" 3 cpLen
 
 -- | Test 7.2: Diamond dependency with slow branch
 -- a.txt (leaf), b.txt needs a.txt + 100ms delay, c.txt needs a.txt (fast),
@@ -160,11 +157,9 @@ testDiamond =
         Shake.writeFile' out "d-content"
       Shake.want [tmpDir </> "d.txt"]
 
-    checkFn tmpDir graph = do
+    checkFn _tmpDir graph = do
       let fileNodes = nodesOfType FileNode graph
-      assertBool
-        ("expected 4 FileNodes, got " ++ show (length fileNodes))
-        (length fileNodes >= 4)
+      assertEqual "expected 4 FileNodes" 4 (length fileNodes)
       let edgeCount = Vector.length (graphEdges graph)
       assertBool
         ("expected >= 4 edges, got " ++ show edgeCount)
@@ -294,6 +289,7 @@ testTimingPlausibility =
 
 -- | Test 7.1/7.7: Output files and idempotency
 -- Use TE.shake to write output files, verify JSON and Mermaid, run again for idempotency.
+-- Verify both runs produce same graph structure (same nodes and edges).
 testOutputFiles :: Assertion
 testOutputFiles =
   withSystemTempDirectory "shake-integ-output" $ \tmpDir -> do
@@ -305,7 +301,7 @@ testOutputFiles =
         jsonPath = shakeDir </> "telemetry" </> "build-graph.json"
         mmdPath = shakeDir </> "telemetry" </> "critical-path.mmd"
         rules = do
-          (tmpDir </> "out.txt") Shake.%> \out ->
+          (tmpDir </> "out.txt") WR.%> \out ->
             Shake.writeFile' out "output"
           Shake.want [tmpDir </> "out.txt"]
 
@@ -314,21 +310,50 @@ testOutputFiles =
     -- Check JSON file
     jsonExists <- doesFileExist jsonPath
     assertBool "build-graph.json should exist" jsonExists
-    jsonBytes <- readFileStrict jsonPath
-    case Aeson.decode (BSL.fromStrict jsonBytes) :: Maybe Aeson.Value of
-      Nothing -> assertFailure "build-graph.json should be valid JSON"
-      Just _ -> pure ()
+    jsonBytes1 <- readFileStrict jsonPath
+    json1 <- case Aeson.decode (BSL.fromStrict jsonBytes1) :: Maybe Aeson.Value of
+      Nothing -> assertFailure "build-graph.json should be valid JSON" >> error "unreachable"
+      Just v -> pure v
     -- Check Mermaid file
     mmdExists <- doesFileExist mmdPath
     assertBool "critical-path.mmd should exist" mmdExists
-    mmdContent <- readFileStrictText mmdPath
+    mmdContent1 <- readFileStrictText mmdPath
     assertBool
-      ("Mermaid file should start with 'graph LR', got: " ++ take 40 mmdContent)
-      ("graph LR" `isPrefixOf` mmdContent)
+      ("Mermaid file should start with 'graph LR', got: " ++ take 40 mmdContent1)
+      ("graph LR" `isPrefixOf` mmdContent1)
 
-    -- Idempotency: run the same build again
+    -- Idempotency: clean shake database and run the same build again
+    removeDirectoryRecursive shakeDir
     TE.shake opts rules
+    -- Verify JSON still valid
     jsonBytes2 <- readFileStrict jsonPath
-    case Aeson.decode (BSL.fromStrict jsonBytes2) :: Maybe Aeson.Value of
-      Nothing -> assertFailure "build-graph.json should still be valid JSON after second build"
-      Just _ -> pure ()
+    json2 <- case Aeson.decode (BSL.fromStrict jsonBytes2) :: Maybe Aeson.Value of
+      Nothing -> assertFailure "build-graph.json should still be valid JSON after second build" >> error "unreachable"
+      Just v -> pure v
+    -- Verify Mermaid still valid
+    mmdContent2 <- readFileStrictText mmdPath
+    assertBool
+      ("Mermaid file should start with 'graph LR' after second build")
+      ("graph LR" `isPrefixOf` mmdContent2)
+    -- Verify structural equivalence: same node labels and edge count
+    let extractStructure :: Aeson.Value -> Maybe ([String], Int)
+        extractStructure (Aeson.Object obj) = do
+          nodesVal <- KM.lookup "nodes" obj
+          edgesVal <- KM.lookup "edges" obj
+          nodeLabels <- case nodesVal of
+            Aeson.Array arr -> Just
+              [ T.unpack lbl
+              | Aeson.Object nObj <- Vector.toList arr
+              , Just (Aeson.String lbl) <- [KM.lookup "label" nObj]
+              ]
+            _ -> Nothing
+          edgeCount <- case edgesVal of
+            Aeson.Array arr -> Just (Vector.length arr)
+            _ -> Nothing
+          Just (sort nodeLabels, edgeCount)
+        extractStructure _ = Nothing
+    case (extractStructure json1, extractStructure json2) of
+      (Just (labels1, edges1), Just (labels2, edges2)) -> do
+        assertEqual "same node labels across runs" labels1 labels2
+        assertEqual "same edge count across runs" edges1 edges2
+      _ -> assertFailure "could not extract structure from JSON"
