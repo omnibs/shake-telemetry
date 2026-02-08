@@ -60,9 +60,21 @@ test/
 
 ## Workflow
 
+Before starting a phase:
+
+1. **Write an execution plan.** Use the `superpowers:writing-plans` skill. Read the relevant phase from `ROADMAP.md` and the current state of the code, then write a detailed execution plan to a file (e.g. `plans/phase-N.md`). Commit the plan before writing any code.
+
+2. **Execute the plan.** Use the `superpowers:executing-plans` skill to work through the committed plan step by step.
+
+While working:
+
 - Make small commits as you go (one per logical step, not one per phase).
-- When a phase in `ROADMAP.md` is complete, mark it with `[DONE]` in the heading (e.g. `## Phase 1: Project scaffolding [DONE]`).
 - Run `devenv shell -- cabal test --enable-tests` to verify before committing.
+
+When a phase is complete:
+
+- Mark it with `[DONE]` in the `ROADMAP.md` heading (e.g. `## Phase 1: Project scaffolding [DONE]`).
+- Commit the roadmap update.
 
 <!-- TODO: Add linting/formatting instructions if a tool is adopted -->
 <!-- TODO: Add commit message conventions if desired -->
