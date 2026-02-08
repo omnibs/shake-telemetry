@@ -59,6 +59,14 @@ wrapAction ntype name act = do
   act
   Shake.liftIO $ finishNode state nid
 
+-- Match Shake's fixity declarations for all rule operators
+infix 1 %>
+infix 1 |%>
+infix 1 ?>
+infix 1 &%>
+infix 1 &?>
+infix 1 ~>
+
 -- File rules
 
 (%>) :: HasCallStack => FilePattern -> (FilePath -> Action ()) -> Rules ()
