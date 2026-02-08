@@ -3,6 +3,7 @@ name:            shake-telemetry
 version:         0.1.0.0
 synopsis:        Telemetry wrapper for Shake build system with critical path analysis
 license:         BSD-3-Clause
+license-file:    LICENSE
 build-type:      Simple
 
 library
