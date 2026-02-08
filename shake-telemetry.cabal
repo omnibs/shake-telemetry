@@ -40,6 +40,7 @@ test-suite shake-telemetry-tests
   hs-source-dirs:   test
   main-is:          Main.hs
   other-modules:
+    Test.Telemetry.CriticalPathTest
     Test.Telemetry.StateTest
   build-depends:
     , base              >=4.19 && <5
@@ -49,6 +50,7 @@ test-suite shake-telemetry-tests
     , tasty
     , tasty-hedgehog
     , tasty-hunit
+    , time
     , vector
     , text
   ghc-options:      -threaded -rtsopts -with-rtsopts=-N

@@ -20,24 +20,28 @@ computeCriticalPath graph =
     nodes = graphNodes graph
     edges = Vector.toList (graphEdges graph)
 
-    -- Build adjacency list: for each node, which nodes depend on it (successors)
-    -- and which nodes it depends on (predecessors).
+    -- Edge(from=A, to=B) means "A depends on B", so in execution order B -> A.
+    --
+    -- Execution-order predecessors of v: nodes that v depends on.
+    -- For Edge(from=v, to=u), u is a predecessor of v.
     predecessors :: IntMap [Int]
     predecessors = foldl' addPred (IntMap.map (const []) nodes) edges
       where
-        addPred acc (Edge from to) = IntMap.adjust (from :) to acc
+        addPred acc (Edge from to) = IntMap.adjust (to :) from acc
 
-    -- In-degree for Kahn's algorithm
+    -- In-degree in execution order: number of dependencies of each node.
+    -- For Edge(from=v, to=u), v gains one in-degree.
     inDegree :: IntMap Int
     inDegree = foldl' addDeg (IntMap.map (const 0) nodes) edges
       where
-        addDeg acc (Edge _from to) = IntMap.adjust (+ 1) to acc
+        addDeg acc (Edge from _to) = IntMap.adjust (+ 1) from acc
 
-    -- Successors: from -> [to]
+    -- Execution-order successors of v: nodes that depend on v.
+    -- For Edge(from=w, to=v), w is a successor of v.
     successors :: IntMap [Int]
     successors = foldl' addSucc (IntMap.map (const []) nodes) edges
       where
-        addSucc acc (Edge from to) = IntMap.adjust (to :) from acc
+        addSucc acc (Edge from to) = IntMap.adjust (from :) to acc
 
     -- Kahn's topological sort
     topoSort :: [Int]

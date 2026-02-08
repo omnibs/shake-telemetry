@@ -2,6 +2,7 @@ module Main where
 
 import Test.Tasty
 
+import Test.Telemetry.CriticalPathTest (criticalPathTests)
 import Test.Telemetry.StateTest (stateTests)
 
 main :: IO ()
@@ -12,4 +13,5 @@ tests =
   testGroup
     "shake-telemetry"
     [ stateTests
+    , criticalPathTests
     ]
