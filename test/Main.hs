@@ -6,6 +6,7 @@ import Test.Telemetry.CriticalPathProps (criticalPathProps)
 import Test.Telemetry.CriticalPathTest (criticalPathTests)
 import Test.Telemetry.JsonTest (jsonTests)
 import Test.Telemetry.MermaidTest (mermaidTests)
+import Test.Telemetry.ParityTest (parityTests)
 import Test.Telemetry.StateTest (stateTests)
 import Test.Telemetry.WrapTest (wrapTests)
 
@@ -22,4 +23,5 @@ tests =
     , jsonTests
     , mermaidTests
     , wrapTests
+    , parityTests
     ]
