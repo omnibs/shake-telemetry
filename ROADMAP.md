@@ -143,7 +143,7 @@ Test with `tasty`:
 
 ---
 
-## Phase 4: Output formats
+## Phase 4: Output formats [DONE]
 
 Implement JSON and Mermaid output as pure functions on `BuildGraph` (post critical-path analysis).
 
