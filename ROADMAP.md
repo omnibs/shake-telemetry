@@ -301,3 +301,42 @@ Across all integration tests, verify:
 ### 7.7 Idempotent output
 
 Run the same build twice. Verify both runs produce valid JSON and Mermaid output. The graphs may differ in timing but should have the same structure (same nodes and edges).
+
+---
+
+## Phase 8: Cached rule detection
+
+Currently, when Shake skips a rule because nothing changed (cache hit), the rule body never executes and our telemetry wrapping code never runs. This means cached rules are invisible in the graph — no node, no edges, no timing data. We want cached rules to still appear in the graph so users can see the full dependency structure, with a clear indication that the rule was a cache hit (no execution time).
+
+### 8.1 Detect cached rules via missing timing data
+
+On an incremental build (second run, no source changes), Shake will skip all rules. Currently these rules produce no telemetry at all. We need a mechanism to ensure cached rules still appear in the graph. Possible approaches:
+
+- **Pre-register nodes**: Before the build starts, register all known rule targets as placeholder nodes (no timing data). Rules that execute will fill in timing data via the existing `registerNode`/`finishNode` flow. Rules that are cached will remain as placeholders with `Nothing` for `startTime`, `endTime`, and `duration`.
+- **Post-build reconciliation**: After the build completes, compare the set of targets Shake knows about against the nodes in the graph, and add missing ones as cached.
+- **Shake's `shakeProgress` or `shakeTrace` hooks**: Investigate whether Shake provides callbacks for skipped rules that we could intercept.
+
+Whichever approach is chosen, a cached rule node should have:
+- `nodeLabel` set to the target path/name
+- `nodeType` set appropriately (FileNode, PhonyNode, etc.)
+- `nodeStartTime = Nothing`, `nodeEndTime = Nothing`, `nodeDuration = Nothing`
+- Edges to its dependencies should still be recorded if possible
+
+### 8.2 Record edges for cached rules
+
+If a rule is cached, its body (which contains `need` calls) never executes, so dependency edges are not recorded. Investigate whether Shake exposes the dependency graph for cached rules (e.g., via the shake database or `shakeTrace`). If not, accept that edges from cached rules will be absent and document this limitation.
+
+### 8.3 Test: incremental build shows cached nodes
+
+Run a build twice without clearing the shake database. On the second run:
+- All rule nodes from the first run should still appear in the graph.
+- Nodes that were cached (not re-executed) should have `nodeDuration = Nothing`.
+- Nodes that did re-execute (if any) should have timing data.
+- The graph structure (nodes) should be a superset of the first run's nodes.
+
+### 8.4 Test: mixed cached and rebuilt
+
+Modify a source file between two builds so that some rules re-execute and others are cached. Verify:
+- Rebuilt rules have timing data.
+- Cached rules have no timing data (`nodeDuration = Nothing`).
+- The full dependency graph is present regardless of cache status.
