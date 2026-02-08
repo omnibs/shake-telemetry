@@ -46,6 +46,7 @@ test-suite shake-telemetry-tests
     Test.Telemetry.CriticalPathProps
     Test.Telemetry.CriticalPathTest
     Test.Telemetry.JsonTest
+    Test.Telemetry.MermaidTest
     Test.Telemetry.StateTest
   build-depends:
     , aeson
