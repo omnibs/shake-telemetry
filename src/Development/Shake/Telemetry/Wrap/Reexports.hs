@@ -52,8 +52,8 @@ module Development.Shake.Telemetry.Wrap.Reexports
   , command
   , command_
   , CmdOption (..)
-  , CmdResult (..)
-  , CmdString (..)
+  , CmdResult
+  , CmdString
   , addPath
   , addEnv
   , Stdout (..)
@@ -140,29 +140,15 @@ module Development.Shake.Telemetry.Wrap.Reexports
   , (<//>)
   , filePattern
 
-  -- * Re-exported classes (from Development.Shake.Classes)
-  , Typeable
-  , Hashable
-  , Binary
-  , NFData
-
   -- * Re-exported from Control.Monad.IO.Class
-  , MonadIO (..)
+  , liftIO
 
   -- * Deprecated Verbosity pattern synonyms
   , pattern Chatty
   , pattern Loud
   , pattern Normal
   , pattern Quiet
-
-  -- * Re-exported from standard libraries
-  , OptDescr (..)
-  , ArgDescr (..)
-  , ExitCode (..)
   ) where
 
 import Development.Shake
-import Development.Shake.Classes (Binary, Hashable, NFData, Typeable)
-import Control.Monad.IO.Class (MonadIO (..))
-import System.Console.GetOpt (ArgDescr (..), OptDescr (..))
-import System.Exit (ExitCode (..))
+import Control.Monad.IO.Class (liftIO)

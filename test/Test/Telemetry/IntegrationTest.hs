@@ -19,7 +19,9 @@ import Data.Text qualified as Text
 import Data.Vector qualified as Vector
 import Development.Shake qualified as Shake (shake)
 import Development.Shake.Telemetry qualified as T
-import Development.Shake.Telemetry (Binary, Hashable, NFData, ShakeOptions (..), Typeable, shakeOptions)
+import Development.Shake.Telemetry (ShakeOptions (..), shakeOptions)
+import Development.Shake.Classes (Binary, Hashable, NFData)
+import Data.Typeable (Typeable)
 import Development.Shake.Telemetry.CriticalPath (computeCriticalPath)
 import Development.Shake.Telemetry.Graph
 import Development.Shake.Telemetry.State (freezeGraph, newTelemetryState)

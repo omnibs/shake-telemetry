@@ -111,13 +111,25 @@ browseModule modName =
 
 -- | Names that Shake exports but we intentionally don't re-export.
 -- Each entry should have a comment explaining why.
-knownExceptions :: Set String
-knownExceptions = Set.fromList
+knownMissing :: Set String
+knownMissing = Set.fromList
   [ -- Deprecated verbosity pattern synonyms. Our module re-exports the
     -- Verbosity type with all constructors. These deprecated aliases
     -- (Chatty=Verbose, Loud=Verbose, Normal=Info, Quiet=Warn) are pattern
     -- synonyms that we re-export via the Reexports module.
     -- If they show up as missing, it's a parsing issue, not a real gap.
+  ]
+
+-- | Names that :browse shows in our module but not in Shake, which we
+-- intentionally export (e.g. telemetry-specific additions).
+-- Note: :browse shows class names when only a method is exported, so
+-- class names shared by both modules appear on both sides and cancel out.
+knownExtras :: Set String
+knownExtras = Set.fromList
+  [ -- Our wrapped entry points / dependency creators / rule definers
+    -- that replace Shake's versions show up with our module prefix in
+    -- :browse but resolve to the same unqualified names, so they don't
+    -- appear as extras. Only truly new names need listing here.
   ]
 
 parityTests :: TestTree
@@ -130,13 +142,23 @@ parityTests =
 
         let shakeNames = extractNames shakeOutput
             telemetryNames = extractNames telemetryOutput
-            missing = (shakeNames `Set.difference` telemetryNames) `Set.difference` knownExceptions
+            missing = (shakeNames `Set.difference` telemetryNames) `Set.difference` knownMissing
+            extra   = (telemetryNames `Set.difference` shakeNames) `Set.difference` knownExtras
 
-        if Set.null missing
+        let errors = concat
+              [ if Set.null missing then []
+                else [ "Missing from Development.Shake.Telemetry:\n"
+                     ++ unlines (map ("  - " ++) (sort (Set.toList missing)))
+                     ]
+              , if Set.null extra then []
+                else [ "Extra in Development.Shake.Telemetry (not in Development.Shake):\n"
+                     ++ unlines (map ("  + " ++) (sort (Set.toList extra)))
+                     ]
+              ]
+
+        if null errors
           then pure ()
-          else assertFailure $
-            "Missing from Development.Shake.Telemetry:\n"
-            ++ unlines (map ("  - " ++) (sort (Set.toList missing)))
-            ++ "\nShake exports " ++ show (Set.size shakeNames) ++ " names, "
+          else assertFailure $ concat errors
+            ++ "Shake exports " ++ show (Set.size shakeNames) ++ " names, "
             ++ "Telemetry exports " ++ show (Set.size telemetryNames) ++ " names"
     ]
