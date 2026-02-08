@@ -1,3 +1,5 @@
+{-# LANGUAGE PatternSynonyms #-}
+
 module Development.Shake.Telemetry.Wrap.Reexports
   ( -- * Core types
     Rules
@@ -52,6 +54,8 @@ module Development.Shake.Telemetry.Wrap.Reexports
   , CmdOption (..)
   , CmdResult
   , CmdString
+  , addPath
+  , addEnv
   , Stdout (..)
   , StdoutTrim (..)
   , Stderr (..)
@@ -142,6 +146,15 @@ module Development.Shake.Telemetry.Wrap.Reexports
   , Binary
   , NFData
 
+  -- * Re-exported from Control.Monad.IO.Class
+  , MonadIO
+
+  -- * Deprecated Verbosity pattern synonyms
+  , pattern Chatty
+  , pattern Loud
+  , pattern Normal
+  , pattern Quiet
+
   -- * Re-exported from standard libraries
   , OptDescr (..)
   , ArgDescr (..)
@@ -150,5 +163,6 @@ module Development.Shake.Telemetry.Wrap.Reexports
 
 import Development.Shake
 import Development.Shake.Classes (Binary, Hashable, NFData, Typeable)
+import Control.Monad.IO.Class (MonadIO)
 import System.Console.GetOpt (ArgDescr (..), OptDescr (..))
 import System.Exit (ExitCode (..))

@@ -57,6 +57,7 @@ test-suite shake-telemetry-tests
     , directory
     , filepath
     , hedgehog
+    , process
     , shake
     , shake-telemetry
     , tasty

@@ -1,129 +1,133 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- | This module verifies that Development.Shake.Telemetry exports
--- the same API surface as Development.Shake. It imports both modules
--- qualified and binds a representative sample of functions from each,
--- asserting they have compatible types. If any export is missing from
--- our module, this file will fail to compile.
+-- | Verifies that Development.Shake.Telemetry exports the same API
+-- surface as Development.Shake by running GHCi's :browse on both
+-- modules and comparing the exported names. If Shake adds new exports,
+-- this test will fail until we add them to our module.
 module Test.Telemetry.ParityTest (parityTests) where
 
-import Development.Shake qualified as S
-import Development.Shake.Telemetry qualified as T
+import Data.Char (isSpace)
+import Data.List (sort)
+import Data.Set (Set)
+import Data.Set qualified as Set
+import System.Process (readProcess)
 import Test.Tasty
 import Test.Tasty.HUnit
 
--- Type witnesses: if these compile, the types match.
--- We don't need to run them, just verify they type-check.
+-- | Extract exported names from :browse output.
+--
+-- GHCi :browse output has lines like:
+--   Development.Shake.need :: [FilePath] -> Action ()
+--   shake-0.19.9:Development.Shake.Internal.Rules.File.need :: ...
+--   type shake-0.19.9:Development.Shake.Internal.Options.Change :: *
+--   data shake-0.19.9:Development.Shake.Internal.Options.Change
+--   class Development.Shake.Command.CmdResult a where
+--   pattern Development.Shake.Chatty
+--
+-- Multi-line signatures have continuation lines starting with whitespace.
+-- We extract the unqualified name (after the last dot) from definition lines.
+extractNames :: String -> Set String
+extractNames output = Set.fromList $ concatMap parseLine (lines output)
+  where
+    parseLine line
+      | null line = []
+      -- Skip continuation lines (indented)
+      | isSpace (head' line) = []
+      -- "type role ..." -> skip (role annotations)
+      | "type role " `startsWith` line = []
+      -- "type family Module.Name ..." -> extract name
+      | "type family " `startsWith` line =
+          extractFrom (drop 12 line)
+      -- "type Module.Name :: *" -> kind signature, skip (data/type decl covers it)
+      | "type " `startsWith` line, " :: " `isIn` dropQual (drop 5 line) =
+          []
+      -- "type Module.Name = ..." -> type alias
+      | "type " `startsWith` line =
+          extractFrom (drop 5 line)
+      -- "data Module.Name" -> data type
+      | "data " `startsWith` line =
+          extractFrom (drop 5 line)
+      -- "class Module.Name ..." -> class
+      | "class " `startsWith` line =
+          extractFrom (drop 6 line)
+      -- "pattern Module.Name" -> pattern synonym
+      | "pattern " `startsWith` line =
+          extractFrom (drop 8 line)
+      -- "Module.Name :: ..." -> function/value
+      | otherwise =
+          extractFrom line
 
--- Entry points
-_shake :: S.ShakeOptions -> S.Rules () -> IO ()
-_shake = T.shake
+    extractFrom s =
+      let qualified = takeWhile (\c -> c /= ' ' && c /= '\n') s
+          name = unqualify qualified
+      in if null name then [] else [name]
 
-_shakeArgs :: S.ShakeOptions -> S.Rules () -> IO ()
-_shakeArgs = T.shakeArgs
+    -- Strip package prefix like "shake-0.19.9:" and module path
+    -- "shake-0.19.9:Development.Shake.Internal.Options.Change" -> "Change"
+    -- "Development.Shake.need" -> "need"
+    -- "Development.Shake.(%>)" -> "(%>)"
+    unqualify s =
+      let -- Strip package prefix (e.g., "shake-0.19.9:")
+          noPkg = case break (== ':') s of
+            (_, ':':rest) -> rest
+            _ -> s
+      in lastDotComponent noPkg
 
--- Rule definers
-_fileRule :: S.FilePattern -> (FilePath -> S.Action ()) -> S.Rules ()
-_fileRule = (T.%>)
+    -- Get the part after the last dot, handling operators in parens
+    -- "Foo.Bar.baz" -> "baz"
+    -- "Foo.Bar.(%>)" -> "(%>)"
+    lastDotComponent [] = []
+    lastDotComponent s = go s
+      where
+        go xs = case break (== '.') xs of
+          (before, []) -> before  -- no more dots
+          (_, '.':'(':rest) -> '(' : rest  -- operator like .(%>)
+          (_, '.':rest)
+            | null rest -> xs
+            | otherwise -> go rest
+          _ -> xs
 
-_multiFileRule :: [S.FilePattern] -> (FilePath -> S.Action ()) -> S.Rules ()
-_multiFileRule = (T.|%>)
+    startsWith prefix str = take (length prefix) str == prefix
+    isIn needle haystack = any (startsWith needle) (tails' haystack)
+    tails' [] = [[]]
+    tails' xs@(_:rest) = xs : tails' rest
+    head' (c:_) = c
+    head' [] = ' '
+    dropQual = dropWhile (/= ' ')
 
-_predFileRule :: (FilePath -> Bool) -> (FilePath -> S.Action ()) -> S.Rules ()
-_predFileRule = (T.?>)
+-- | Run GHCi :browse on a module and return its output.
+browseModule :: String -> IO String
+browseModule modName =
+  readProcess "cabal" ["exec", "ghc", "--", "-e", ":browse " ++ modName] ""
 
-_batchFileRule :: [S.FilePattern] -> ([FilePath] -> S.Action ()) -> S.Rules ()
-_batchFileRule = (T.&%>)
-
-_phony :: String -> S.Action () -> S.Rules ()
-_phony = T.phony
-
-_phonyOp :: String -> S.Action () -> S.Rules ()
-_phonyOp = (T.~>)
-
--- Dependency creators
-_need :: [FilePath] -> S.Action ()
-_need = T.need
-
-_needed :: [FilePath] -> S.Action ()
-_needed = T.needed
-
-_want :: [FilePath] -> S.Rules ()
-_want = T.want
-
-_orderOnly :: [FilePath] -> S.Action ()
-_orderOnly = T.orderOnly
-
-_doesFileExist :: FilePath -> S.Action Bool
-_doesFileExist = T.doesFileExist
-
-_doesDirectoryExist :: FilePath -> S.Action Bool
-_doesDirectoryExist = T.doesDirectoryExist
-
-_getDirectoryContents :: FilePath -> S.Action [FilePath]
-_getDirectoryContents = T.getDirectoryContents
-
-_getDirectoryDirs :: FilePath -> S.Action [FilePath]
-_getDirectoryDirs = T.getDirectoryDirs
-
-_getEnv :: String -> S.Action (Maybe String)
-_getEnv = T.getEnv
-
--- Parallelism
-_parallel :: [S.Action a] -> S.Action [a]
-_parallel = T.parallel
-
-_forP :: [a] -> (a -> S.Action b) -> S.Action [b]
-_forP = T.forP
-
--- Re-exported types (just verify they exist)
-_shakeOptions :: S.ShakeOptions
-_shakeOptions = T.shakeOptions
-
--- Re-exported functions
-_action :: S.Action a -> S.Rules ()
-_action = T.action
-
-_copyFile :: FilePath -> FilePath -> S.Action ()
-_copyFile = T.copyFile'
-
-_readFile :: FilePath -> S.Action String
-_readFile = T.readFile'
-
-_writeFile :: FilePath -> String -> S.Action ()
-_writeFile = T.writeFile'
-
-_newCache :: (T.Hashable a, Eq a) => (a -> S.Action b) -> S.Rules (a -> S.Action b)
-_newCache = T.newCache
-
-_traced :: String -> IO a -> S.Action a
-_traced = T.traced
-
-_getVerbosity :: S.Action S.Verbosity
-_getVerbosity = T.getVerbosity
-
-_putInfo :: String -> S.Action ()
-_putInfo = T.putInfo
-
-_alwaysRerun :: S.Action ()
-_alwaysRerun = T.alwaysRerun
-
-_trackRead :: [FilePath] -> S.Action ()
-_trackRead = T.trackRead
-
-_progressSimple :: IO S.Progress -> IO ()
-_progressSimple = T.progressSimple
-
--- Command execution
-_cmd :: S.CmdResult r => [S.CmdOption] -> String -> [String] -> S.Action r
-_cmd opts prog args = T.command opts prog args
+-- | Names that Shake exports but we intentionally don't re-export.
+-- Each entry should have a comment explaining why.
+knownExceptions :: Set String
+knownExceptions = Set.fromList
+  [ -- Deprecated verbosity pattern synonyms. Our module re-exports the
+    -- Verbosity type with all constructors. These deprecated aliases
+    -- (Chatty=Verbose, Loud=Verbose, Normal=Info, Quiet=Warn) are pattern
+    -- synonyms that we re-export via the Reexports module.
+    -- If they show up as missing, it's a parsing issue, not a real gap.
+  ]
 
 parityTests :: TestTree
 parityTests =
   testGroup
     "API parity"
-    [ testCase "Development.Shake.Telemetry exports match Development.Shake" $
-        -- If this module compiles, the API surface is compatible.
-        -- This test just confirms the module loaded successfully.
-        assertBool "API parity verified at compile time" True
+    [ testCase "Development.Shake.Telemetry has all Development.Shake exports" $ do
+        shakeOutput <- browseModule "Development.Shake"
+        telemetryOutput <- browseModule "Development.Shake.Telemetry"
+
+        let shakeNames = extractNames shakeOutput
+            telemetryNames = extractNames telemetryOutput
+            missing = (shakeNames `Set.difference` telemetryNames) `Set.difference` knownExceptions
+
+        if Set.null missing
+          then pure ()
+          else assertFailure $
+            "Missing from Development.Shake.Telemetry:\n"
+            ++ unlines (map ("  - " ++) (sort (Set.toList missing)))
+            ++ "\nShake exports " ++ show (Set.size shakeNames) ++ " names, "
+            ++ "Telemetry exports " ++ show (Set.size telemetryNames) ++ " names"
     ]
