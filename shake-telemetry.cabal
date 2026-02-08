@@ -40,6 +40,7 @@ test-suite shake-telemetry-tests
   hs-source-dirs:   test
   main-is:          Main.hs
   other-modules:
+    Test.Telemetry.CriticalPathProps
     Test.Telemetry.CriticalPathTest
     Test.Telemetry.StateTest
   build-depends:

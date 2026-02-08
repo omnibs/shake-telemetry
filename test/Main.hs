@@ -2,6 +2,7 @@ module Main where
 
 import Test.Tasty
 
+import Test.Telemetry.CriticalPathProps (criticalPathProps)
 import Test.Telemetry.CriticalPathTest (criticalPathTests)
 import Test.Telemetry.StateTest (stateTests)
 
@@ -14,4 +15,5 @@ tests =
     "shake-telemetry"
     [ stateTests
     , criticalPathTests
+    , criticalPathProps
     ]
