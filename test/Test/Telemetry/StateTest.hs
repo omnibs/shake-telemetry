@@ -65,7 +65,11 @@ basicTests =
       nid <- registerNode state "ctx-test" FileNode
       setThreadNode state nid
       got <- getThreadNode state
-      assertEqual "thread node" nid got
+      assertEqual "thread node" (Just nid) got
+  , testCase "getThreadNode returns Nothing without setThreadNode" $ do
+      state <- newTelemetryState
+      got <- getThreadNode state
+      assertEqual "no thread node" Nothing got
   ]
 
 dedupTests :: [TestTree]

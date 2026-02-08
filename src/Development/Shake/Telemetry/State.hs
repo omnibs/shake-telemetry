@@ -132,15 +132,15 @@ setThreadNode state nid = do
   tid <- myThreadId
   atomically $ modifyTVar (tsThreadContext state) (Map.insert tid nid)
 
--- | Get the node ID associated with the current thread.
--- Throws an error if no context is set (indicates a wrapping bug).
-getThreadNode :: TelemetryState -> IO Int
+-- | Get the node ID associated with the current thread, if any.
+-- Returns Nothing when the current thread has no context set.
+-- This can happen because Shake's thread pool may resume Actions
+-- on different threads than they started on (via actionFenceRequeue).
+getThreadNode :: TelemetryState -> IO (Maybe Int)
 getThreadNode state = do
   tid <- myThreadId
   ctx <- readTVarIO (tsThreadContext state)
-  case Map.lookup tid ctx of
-    Just nid -> pure nid
-    Nothing -> error $ "shake-telemetry: no thread context for " ++ show tid
+  pure $ Map.lookup tid ctx
 
 -- | Freeze the mutable state into an immutable BuildGraph.
 freezeGraph :: TelemetryState -> IO BuildGraph
