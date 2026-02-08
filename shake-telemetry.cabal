@@ -22,10 +22,13 @@ library
     Development.Shake.Telemetry.Wrap.Rules
   build-depends:
     , aeson
+    , aeson-pretty
     , base                  >=4.19 && <5
     , bytestring
     , clock
     , containers
+    , directory
+    , filepath
     , hashable
     , shake
     , strict-stm
@@ -42,8 +45,10 @@ test-suite shake-telemetry-tests
   other-modules:
     Test.Telemetry.CriticalPathProps
     Test.Telemetry.CriticalPathTest
+    Test.Telemetry.JsonTest
     Test.Telemetry.StateTest
   build-depends:
+    , aeson
     , base              >=4.19 && <5
     , containers
     , hedgehog
@@ -51,7 +56,7 @@ test-suite shake-telemetry-tests
     , tasty
     , tasty-hedgehog
     , tasty-hunit
+    , text
     , time
     , vector
-    , text
   ghc-options:      -threaded -rtsopts -with-rtsopts=-N
