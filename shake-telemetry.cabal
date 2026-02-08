@@ -1,0 +1,48 @@
+cabal-version:   3.0
+name:            shake-telemetry
+version:         0.1.0.0
+synopsis:        Telemetry wrapper for Shake build system with critical path analysis
+license:         BSD-3-Clause
+build-type:      Simple
+
+library
+  default-language: GHC2021
+  hs-source-dirs:   src
+  exposed-modules:
+    Development.Shake.Telemetry
+    Development.Shake.Telemetry.CriticalPath
+    Development.Shake.Telemetry.Graph
+    Development.Shake.Telemetry.Json
+    Development.Shake.Telemetry.Mermaid
+    Development.Shake.Telemetry.State
+    Development.Shake.Telemetry.Wrap.Actions
+    Development.Shake.Telemetry.Wrap.Entry
+    Development.Shake.Telemetry.Wrap.Parallel
+    Development.Shake.Telemetry.Wrap.Reexports
+    Development.Shake.Telemetry.Wrap.Rules
+  build-depends:
+    , aeson
+    , base                  >=4.19 && <5
+    , bytestring
+    , clock
+    , containers
+    , hashable
+    , shake
+    , stm
+    , text
+    , time
+    , unordered-containers
+    , vector
+
+test-suite shake-telemetry-tests
+  default-language: GHC2021
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test
+  main-is:          Main.hs
+  build-depends:
+    , base              >=4.19 && <5
+    , hedgehog
+    , shake-telemetry
+    , tasty
+    , tasty-hedgehog
+  ghc-options:      -threaded -rtsopts -with-rtsopts=-N
