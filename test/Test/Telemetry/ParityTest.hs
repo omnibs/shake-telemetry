@@ -31,7 +31,16 @@ extractNames output = Set.fromList $ concatMap parseLine (lines output)
   where
     parseLine line
       | null line = []
-      -- Skip continuation lines (indented)
+      -- Indented lines: class methods look like "  Module.Name :: ..."
+      -- Other continuation lines (type signatures, constraints) don't
+      -- start with a qualified identifier containing dots.
+      | isSpace (head' line)
+      , let trimmed = dropWhile isSpace line
+      , not (null trimmed)
+      , not (isSpace (head' trimmed))
+      , let word = takeWhile (\c -> c /= ' ' && c /= '\n') trimmed
+      , '.' `elem` word
+      , " :: " `isIn` trimmed = extractFrom trimmed
       | isSpace (head' line) = []
       -- "type role ..." -> skip (role annotations)
       | "type role " `startsWith` line = []

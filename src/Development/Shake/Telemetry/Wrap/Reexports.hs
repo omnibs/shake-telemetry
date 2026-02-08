@@ -52,8 +52,8 @@ module Development.Shake.Telemetry.Wrap.Reexports
   , command
   , command_
   , CmdOption (..)
-  , CmdResult
-  , CmdString
+  , CmdResult (..)
+  , CmdString (..)
   , addPath
   , addEnv
   , Stdout (..)
@@ -147,7 +147,7 @@ module Development.Shake.Telemetry.Wrap.Reexports
   , NFData
 
   -- * Re-exported from Control.Monad.IO.Class
-  , MonadIO
+  , MonadIO (..)
 
   -- * Deprecated Verbosity pattern synonyms
   , pattern Chatty
@@ -163,6 +163,6 @@ module Development.Shake.Telemetry.Wrap.Reexports
 
 import Development.Shake
 import Development.Shake.Classes (Binary, Hashable, NFData, Typeable)
-import Control.Monad.IO.Class (MonadIO)
+import Control.Monad.IO.Class (MonadIO (..))
 import System.Console.GetOpt (ArgDescr (..), OptDescr (..))
 import System.Exit (ExitCode (..))
