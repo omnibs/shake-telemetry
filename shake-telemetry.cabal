@@ -33,7 +33,7 @@ library
     , filepath
     , hashable
     , shake
-    , strict-stm
+    , stm
     , text
     , time
     , unordered-containers
