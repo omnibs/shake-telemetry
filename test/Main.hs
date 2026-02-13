@@ -9,6 +9,7 @@ import Test.Telemetry.JsonTest (jsonTests)
 import Test.Telemetry.MermaidTest (mermaidTests)
 import Test.Telemetry.ParityTest (parityTests)
 import Test.Telemetry.StateTest (stateTests)
+import Test.Telemetry.ThreadContextLossTest (threadContextLossTests)
 import Test.Telemetry.WrapTest (wrapTests)
 
 main :: IO ()
@@ -26,4 +27,5 @@ tests =
     , wrapTests
     , parityTests
     , integrationTests
+    , threadContextLossTests
     ]
