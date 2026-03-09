@@ -11,15 +11,13 @@ module Development.Shake.Telemetry.State
   ) where
 
 import Control.Concurrent (ThreadId, myThreadId)
-import Control.Concurrent.Class.MonadSTM.Strict
-  ( MonadSTM (..)
-  , StrictTVar
+import Control.Concurrent.STM
+  ( TVar
   , atomically
-  , modifyTVar
+  , modifyTVar'
   , newTVarIO
   , readTVar
   , readTVarIO
-  , stateTVar
   , writeTVar
   )
 import Data.HashMap.Strict (HashMap)
@@ -36,12 +34,12 @@ import System.Clock (Clock (Monotonic), TimeSpec, getTime, toNanoSecs)
 import Development.Shake.Telemetry.Graph
 
 data TelemetryState = TelemetryState
-  { tsNodes :: !(StrictTVar IO (IntMap Node))
-  , tsEdges :: !(StrictTVar IO [Edge])
-  , tsNextId :: !(StrictTVar IO Int)
-  , tsThreadContext :: !(StrictTVar IO (Map ThreadId Int))
+  { tsNodes :: !(TVar (IntMap Node))
+  , tsEdges :: !(TVar [Edge])
+  , tsNextId :: !(TVar Int)
+  , tsThreadContext :: !(TVar (Map ThreadId Int))
   , tsBuildStart :: !TimeSpec
-  , tsLabelToId :: !(StrictTVar IO (HashMap Text Int))
+  , tsLabelToId :: !(TVar (HashMap Text Int))
   }
 
 newTelemetryState :: IO TelemetryState
@@ -78,7 +76,8 @@ getOrCreateNode state label nodeType = atomically $ do
   case HashMap.lookup label labelMap of
     Just nid -> pure nid
     Nothing -> do
-      nid <- stateTVar (tsNextId state) (\n -> (n, n + 1))
+      nid <- readTVar (tsNextId state)
+      writeTVar (tsNextId state) (nid + 1)
       let node =
             Node
               { nodeId = nid
@@ -88,8 +87,8 @@ getOrCreateNode state label nodeType = atomically $ do
               , nodeEndTime = Nothing
               , nodeDuration = Nothing
               }
-      modifyTVar (tsNodes state) (IntMap.insert nid node)
-      modifyTVar (tsLabelToId state) (HashMap.insert label nid)
+      modifyTVar' (tsNodes state) (IntMap.insert nid node)
+      modifyTVar' (tsLabelToId state) (HashMap.insert label nid)
       pure nid
 
 -- | Register a node and record its start time.
@@ -99,7 +98,7 @@ registerNode state label nodeType = do
   nid <- getOrCreateNode state label nodeType
   elapsed <- elapsedSeconds state
   atomically $
-    modifyTVar (tsNodes state) $
+    modifyTVar' (tsNodes state) $
       IntMap.adjust (\n -> n {nodeStartTime = Just elapsed}) nid
   pure nid
 
@@ -108,7 +107,7 @@ finishNode :: TelemetryState -> Int -> IO ()
 finishNode state nid = do
   elapsed <- elapsedSeconds state
   atomically $
-    modifyTVar (tsNodes state) $
+    modifyTVar' (tsNodes state) $
       IntMap.adjust
         ( \n ->
             n
@@ -124,13 +123,13 @@ recordEdge :: TelemetryState -> Int -> Text -> NodeType -> IO ()
 recordEdge state fromId targetLabel targetType = do
   toId <- getOrCreateNode state targetLabel targetType
   atomically $
-    modifyTVar (tsEdges state) (Edge {edgeFrom = fromId, edgeTo = toId} :)
+    modifyTVar' (tsEdges state) (Edge {edgeFrom = fromId, edgeTo = toId} :)
 
 -- | Associate the current thread with a node ID.
 setThreadNode :: TelemetryState -> Int -> IO ()
 setThreadNode state nid = do
   tid <- myThreadId
-  atomically $ modifyTVar (tsThreadContext state) (Map.insert tid nid)
+  atomically $ modifyTVar' (tsThreadContext state) (Map.insert tid nid)
 
 -- | Get the node ID associated with the current thread, if any.
 -- Returns Nothing when the current thread has no context set.

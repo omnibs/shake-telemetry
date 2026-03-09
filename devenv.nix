@@ -1,14 +1,30 @@
 { pkgs, ... }:
 
 {
-  languages.haskell = {
-    enable = true;
-    package = pkgs.haskell.compiler.ghc98;
-    lsp.enable = false;
-    cabal.enable = true;
-  };
-
   packages = [
     pkgs.cabal-install
+    (pkgs.haskell.packages.ghc98.ghcWithPackages (hp:
+      with hp; [
+        aeson
+        aeson-pretty
+        bytestring
+        clock
+        containers
+        directory
+        filepath
+        hashable
+        hedgehog
+        process
+        shake
+        stm
+        tasty
+        tasty-hedgehog
+        tasty-hunit
+        temporary
+        text
+        time
+        unordered-containers
+        vector
+      ]))
   ];
 }

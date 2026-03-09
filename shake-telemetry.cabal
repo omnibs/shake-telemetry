@@ -33,7 +33,7 @@ library
     , filepath
     , hashable
     , shake
-    , strict-stm
+    , stm
     , text
     , time
     , unordered-containers
@@ -52,6 +52,7 @@ test-suite shake-telemetry-tests
     Test.Telemetry.MermaidTest
     Test.Telemetry.ParityTest
     Test.Telemetry.StateTest
+    Test.Telemetry.ThreadContextLossTest
     Test.Telemetry.WrapTest
   build-depends:
     , aeson
